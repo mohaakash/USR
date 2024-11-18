@@ -198,9 +198,13 @@ class USRControlSoftware(QWidget):
         image_container.setFixedSize(640, 480)
         image_container.setStyleSheet("border: 3px solid #6495ED; background-color: #FFFFFF;")
         
-        # Display the annotated image 
-        image_container.setPixmap(update_frame())
-        
+        stackx = []
+        stacky = []
+        while(1):
+            if(len(stackx) == 0 and len(stacky) == 0):
+                image_container.setPixmap(update_frame(stackx,stacky))
+            else:
+                print("Stack:","X",stackx.pop(),"Y:",stacky.pop()) 
         # Counter
         counter_box = QGroupBox("Counter")
         counter_box.setFixedSize(640, 220)
@@ -244,20 +248,14 @@ class USRControlSoftware(QWidget):
         self.setLayout(main_layout)
 
 #function that detects crops and weed and returns annotated image
-def update_frame():
+def update_frame(stack1,stack2):
         
     model = YOLO('june8.pt') 
-
     threshold = 0
-    stackx = []
-    stacky = []
-
     # Load an image
     frame = capture_one_frame()
-
     # Predict the image
     results = model(frame)[0]
-    print("Is the stacks empty?", len(stackx) == 0 and len(stacky) == 0 )  # Output: True
 
     for result in results.boxes.data.tolist():
         x1, y1, x2, y2, score, class_id = result
@@ -271,9 +269,10 @@ def update_frame():
             #calculating the scaling constant
             x=int((x1+x2)//2)
             y=int((y1+y2)//2)
+            print(results.names,'cordinates',x,y)
             # Push elements to the stack
-            stackx.append(x)
-            stacky.append(y)
+            stack1.append(x)
+            stack2.append(y)
 
     annotated_frame = frame
 
@@ -285,7 +284,7 @@ def update_frame():
     scaled_pixmap = pixmap.scaled(640, 480)
 
     return scaled_pixmap
-
+    
 
         
 if __name__ == "__main__":
