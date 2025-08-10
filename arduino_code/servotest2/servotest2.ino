@@ -17,6 +17,8 @@ const int servoXPin = D5; // Adjust based on your wiring
 const int servoYPin = D0;
 
 void setup() {
+
+  pinMode(D8, OUTPUT); // Set D8 as an output pin
   // Attach servos to their respective pins
   servoX.attach(servoXPin);
   servoY.attach(servoYPin);
@@ -64,6 +66,11 @@ void loop() {
       Serial.print(y);
       Serial.print(" -> AngleY: ");
       Serial.println(angleY);
+      delay(600);  
+      //turning the d8 on for 100 ms spray purpose
+      digitalWrite(D8, HIGH); // Set D8 HIGH
+      delay(250);             // Wait for 100 milliseconds
+      digitalWrite(D8, LOW);  // Set D8 LOW
     }
   }
 }

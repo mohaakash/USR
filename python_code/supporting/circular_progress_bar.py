@@ -3,9 +3,9 @@ from PyQt5.QtGui import QPainter, QFont, QColor, QPen
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
 
 class CircularProgressBar(QWidget):
-    def __init__(self, max_value=100, label_text="Progress", progress_color=QColor(255, 80, 80)):
+    def __init__(self,value=0, max_value=100, label_text="Progress", progress_color=QColor(255, 80, 80)):
         super().__init__()
-        self.value = 0  # Starting progress value
+        self.value = value  # Starting progress value
         self.max_value = max_value  # Max value for progress bar
         self.label_text = label_text  # Label text inside the progress bar
         self.progress_color = progress_color  # Progress color (default: red)
@@ -45,7 +45,7 @@ class CircularProgressBar(QWidget):
         # Draw progress text in the center with progress color
         painter.setPen(self.progress_color)
         painter.setFont(QFont("Arial", 15, QFont.Bold))
-        painter.drawText(rect, Qt.AlignCenter, f"{int(self.value)}%")
+        painter.drawText(rect, Qt.AlignCenter, f"{int(self.value)}")
 
         # Draw label text below progress text with the same color
         label_rect = rect.adjusted(0, 40, 0, 0)  # Adjust to position label text slightly below the percentage

@@ -1,5 +1,7 @@
 import sys
 import cv2
+import time
+import serial
 from ultralytics import YOLO
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QSlider, 
@@ -9,6 +11,32 @@ from PyQt5.QtGui import QPixmap, QColor,QIcon,QImage
 from PyQt5.QtCore import Qt,QTimer
 from supporting.camera_output import capture_one_frame
 from supporting.circular_progress_bar import CircularProgressBar
+
+#Initialize stacks and YOLO model
+stackx = []
+stacky = []
+model = YOLO('june8.pt')
+esp = serial.Serial('COM11', 9600, timeout=1)  # Replace 'COM_PORT' with the actual ESP8266 port
+
+def process_image_with_yolo(image):
+    results = model(image)[0]
+    coordinates = []
+    annotated_frame = image.copy()
+
+    for obj in results.boxes.data.tolist():
+        x1, y1, x2, y2, score, class_id = obj
+        x = int((x1 + x2) // 2)
+        y = int((y1 + y2) // 2)
+        coordinates.append((x, y))
+
+        # Draw bounding box and label
+        label = f"{model.names[int(class_id)]}: {score:.2f}"
+        cv2.rectangle(annotated_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+        cv2.putText(
+            annotated_frame, label, (int(x1), int(y1) - 10),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2
+        )
+    return coordinates, annotated_frame
 
 class USRControlSoftware(QWidget):
     def __init__(self):
@@ -23,9 +51,9 @@ class USRControlSoftware(QWidget):
         self.setFixedSize(1300, 950)
         
         # Main container layout
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 0, 10, 0)  # Remove top and bottom margins
-        main_layout.setSpacing(5)  # Minimal spacing between sections
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(10, 0, 10, 0)  # Remove top and bottom margins
+        self.main_layout.setSpacing(5)  # Minimal spacing between sections
         
         # Header section
         header_layout = QHBoxLayout()
@@ -75,49 +103,44 @@ class USRControlSoftware(QWidget):
         header_layout.addLayout(status_layout)
         
         # Left panel
-        leftpanel_box = QGroupBox()
-        leftpanel_box.setFixedSize(320,820 )
-        leftpanel_box.setStyleSheet("QGroupBox { background-color: rgb(220, 255, 229); }")
-        left_panel = QVBoxLayout()
-        left_panel.setSpacing(10)
+        self.leftpanel_box = QGroupBox()
+        self.leftpanel_box.setFixedSize(320,820 )
+        self.leftpanel_box.setStyleSheet("QGroupBox { background-color: rgb(220, 255, 229); }")
+        self.left_panel = QVBoxLayout()
+        self.left_panel.setSpacing(10)
+             
+        # camera Setting
+        self.camera_group = QGroupBox("Camera Setting")
+        self.camera_group.setFixedSize(300, 150)
+        self.camera_layout = QVBoxLayout()
+        self.camera_layout.setContentsMargins(10, 10, 10, 10)
+        self.camera_layout.setSpacing(5)
         
-        # Object Color Setting
-        color_setting_group = QGroupBox("Camera Setting")
-        color_setting_group.setFixedSize(300, 100)
-        color_setting_layout = QVBoxLayout()
-        color_setting_layout.setContentsMargins(10, 10, 10, 10)
-        color_setting_layout.setSpacing(5)
+        self.zoom_slider = QSlider(Qt.Horizontal,self)
+        self.zoom_slider.setFixedSize(180, 20)
+        self.zoom_slider.setRange(1, 5)
+        self.zoom_slider.setValue(1)
+        self.zoom_slider_label = QLabel("Zoom: 1x", self)
+
+        self.brightness_slider = QSlider(Qt.Horizontal, self)
+        self.brightness_slider.setFixedSize(180, 20)
+        self.brightness_slider.setRange(0, 100)
+        self.brightness_slider.setValue(50)
+        self.brightness_slider_label = QLabel("Brightness: 50", self)
+
+        self.saturation_slider = QSlider(Qt.Horizontal, self)
+        self.saturation_slider.setFixedSize(180, 20)
+        self.saturation_slider.setRange(0, 100)
+        self.saturation_slider.setValue(50)
+        self.saturation_slider_label = QLabel("Saturation: 50", self)
         
-        kernel_label = QLabel("Brightness")
-        kernel_slider = QSlider(Qt.Horizontal)
-        kernel_slider.setRange(0, 100)
-        kernel_slider.setFixedSize(180, 20)
-        
-        color_setting_layout.addWidget(kernel_label)
-        color_setting_layout.addWidget(kernel_slider)
-        color_setting_group.setLayout(color_setting_layout)
-        
-        # HSV Setting
-        hsv_group = QGroupBox("HSV Setting")
-        hsv_group.setFixedSize(300, 150)
-        hsv_layout = QVBoxLayout()
-        hsv_layout.setContentsMargins(10, 10, 10, 10)
-        hsv_layout.setSpacing(5)
-        
-        hsv_max_h = QSlider(Qt.Horizontal)
-        hsv_max_h.setFixedSize(180, 20)
-        hsv_max_s = QSlider(Qt.Horizontal)
-        hsv_max_s.setFixedSize(180, 20)
-        hsv_max_v = QSlider(Qt.Horizontal)
-        hsv_max_v.setFixedSize(180, 20)
-        hsv_max_h.setValue(180)
-        hsv_max_s.setValue(255)
-        hsv_max_v.setValue(255)
-        
-        hsv_layout.addWidget(hsv_max_h)
-        hsv_layout.addWidget(hsv_max_s)
-        hsv_layout.addWidget(hsv_max_v)
-        hsv_group.setLayout(hsv_layout)
+        self.camera_layout.addWidget(self.zoom_slider_label)
+        self.camera_layout.addWidget(self.zoom_slider)
+        self.camera_layout.addWidget(self.brightness_slider_label)
+        self.camera_layout.addWidget(self.brightness_slider)
+        self.camera_layout.addWidget(self.saturation_slider_label)
+        self.camera_layout.addWidget(self.saturation_slider)
+        self.camera_group.setLayout(self.camera_layout)
         
         # Set Area
         set_area_group = QGroupBox("Set Area")
@@ -183,44 +206,36 @@ class USRControlSoftware(QWidget):
         target_group.setLayout(target_layout)
         
         # Add sections to the left panel
-        left_panel.addWidget(color_setting_group)
-        left_panel.addWidget(hsv_group)
-        left_panel.addWidget(set_area_group)
-        left_panel.addWidget(target_group)
-        leftpanel_box.setLayout(left_panel)
+        self.left_panel.addWidget(self.camera_group)
+        self.left_panel.addWidget(set_area_group)
+        self.left_panel.addWidget(target_group)
+        self.leftpanel_box.setLayout(self.left_panel)
         
         # Right panel
-        right_panel = QVBoxLayout()
-        right_panel.setSpacing(10)
+        self.right_panel = QVBoxLayout()
+        self.right_panel.setSpacing(10)
         
         # Image container
-        image_container = QLabel("Camera")
-        image_container.setFixedSize(640, 480)
-        image_container.setStyleSheet("border: 3px solid #6495ED; background-color: #FFFFFF;")
-        
-        stackx = []
-        stacky = []
-        while(1):
-            if(len(stackx) == 0 and len(stacky) == 0):
-                image_container.setPixmap(update_frame(stackx,stacky))
-            else:
-                print("Stack:","X",stackx.pop(),"Y:",stacky.pop()) 
+        self.image_container = QLabel("Camera")
+        self.image_container.setFixedSize(640, 480)
+        self.image_container.setStyleSheet("border: 3px solid #6495ED; background-color: #FFFFFF;")
+
         # Counter
-        counter_box = QGroupBox("Counter")
-        counter_box.setFixedSize(640, 220)
-        counter_layout = QHBoxLayout()
-        counter_layout.setSpacing(10)
-        counter_layout.setContentsMargins(10, 10, 10, 10)
+        self.counter_box = QGroupBox("Counter")
+        self.counter_box.setFixedSize(640, 220)
+        self.counter_layout = QHBoxLayout()
+        self.counter_layout.setSpacing(10)
+        self.counter_layout.setContentsMargins(10, 10, 10, 10)
         
         self.progress_bar_counter = CircularProgressBar(max_value=100, label_text="Total Target")
         self.progress_bar_remaining = CircularProgressBar(max_value=100, label_text="Completion")
-        self.progress_bar_counter.setValue(28)
-        self.progress_bar_remaining.setValue(75)
+        self.progress_bar_counter.setValue(0)
+        self.progress_bar_remaining.setValue(0)
         self.progress_bar_remaining.setProgressColor(QColor(0, 204, 0))
         
-        counter_layout.addWidget(self.progress_bar_counter)
-        counter_layout.addWidget(self.progress_bar_remaining)
-        counter_box.setLayout(counter_layout)
+        self.counter_layout.addWidget(self.progress_bar_counter)
+        self.counter_layout.addWidget(self.progress_bar_remaining)
+        self.counter_box.setLayout(self.counter_layout)
         
 
         # Status section
@@ -230,60 +245,92 @@ class USRControlSoftware(QWidget):
         status_box.setStyleSheet("background-color: #e0e0e0; border: 1px solid #ccc; ")
 
 
-        right_panel.addWidget(image_container)
-        right_panel.addStretch()
-        right_panel.addWidget(counter_box)
-        right_panel.addWidget(status_box)
+        self.right_panel.addWidget(self.image_container)
+        self.right_panel.addStretch()
+        self.right_panel.addWidget(self.counter_box)
+        self.right_panel.addWidget(status_box)
 
         # Combine left and right panel
-        main_panel_layout = QHBoxLayout()
-        main_panel_layout.addWidget(leftpanel_box)
-        main_panel_layout.addLayout(right_panel)
+        self.main_panel_layout = QHBoxLayout()
+        self.main_panel_layout.addWidget(self.leftpanel_box)
+        self.main_panel_layout.addLayout(self.right_panel)
         
         # Add all sections to main layout
-        main_layout.addLayout(header_layout)
-        main_layout.addStretch()
-        main_layout.addLayout(main_panel_layout)
+        self.main_layout.addLayout(header_layout)
+        self.main_layout.addStretch()
+        self.main_layout.addLayout(self.main_panel_layout)
         
-        self.setLayout(main_layout)
+        self.setLayout(self.main_layout)
 
-#function that detects crops and weed and returns annotated image
-def update_frame(stack1,stack2):
-        
-    model = YOLO('june8.pt') 
-    threshold = 0
-    # Load an image
-    frame = capture_one_frame()
-    # Predict the image
-    results = model(frame)[0]
+        # Timer for GUI updates
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(100)
 
-    for result in results.boxes.data.tolist():
-        x1, y1, x2, y2, score, class_id = result
-        detection_color= (204, 0, 0) if int(class_id)==0 else (0, 0, 255)
-        if score > threshold:
-            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), detection_color, 2)
-            cv2.putText(frame, results.names[int(class_id)].upper(), (int(x1), int(y1 - 10)),
-                        cv2.FONT_HERSHEY_SIMPLEX, .5, detection_color, 2, cv2.LINE_4)
-            print('cordinates',x1,y1,x2,y2)
+        # Signals for sliders
+        self.zoom_slider.valueChanged.connect(self.update_zoom_label)
+        self.brightness_slider.valueChanged.connect(self.update_brightness_label)
+        self.saturation_slider.valueChanged.connect(self.update_saturation_label)
 
-            #calculating the scaling constant
-            x=int((x1+x2)//2)
-            y=int((y1+y2)//2)
-            print(results.names,'cordinates',x,y)
-            # Push elements to the stack
-            stack1.append(x)
-            stack2.append(y)
+    def update_zoom_label(self):
+        zoom_value = self.zoom_slider.value()
+        self.zoom_slider_label.setText(f"Zoom: {zoom_value}x")
 
-    annotated_frame = frame
+    def update_brightness_label(self):
+        brightness_value = self.brightness_slider.value()
+        self.brightness_slider_label.setText(f"Brightness: {brightness_value}")
 
-    # Convert the annotated frame to QImage for display in QLabel
-    height, width, channel = annotated_frame.shape
-    bytes_per_line = 3 * width
-    q_img = QImage(annotated_frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-    pixmap = QPixmap(q_img)
-    scaled_pixmap = pixmap.scaled(640, 480)
+    def update_saturation_label(self):
+        saturation_value = self.saturation_slider.value()
+        self.saturation_slider_label.setText(f"Saturation: {saturation_value}")
 
-    return scaled_pixmap
+    def update_frame(self):
+        global stackx, stacky
+
+        # Capture a frame
+        frame = capture_one_frame()
+        if frame is None or frame.size == 0:
+            print("Warning: Captured frame is empty.")
+            return
+
+        # Apply brightness and saturation adjustments
+        brightness = self.brightness_slider.value()
+        saturation = self.saturation_slider.value()
+        frame = cv2.convertScaleAbs(frame, alpha=saturation / 50, beta=brightness - 50)
+
+        # Zoom effect
+        zoom_factor = self.zoom_slider.value()
+        if zoom_factor > 1:
+            height, width, _ = frame.shape
+            center_x, center_y = width // 2, height // 2
+            radius_x, radius_y = width // (2 * zoom_factor), height // (2 * zoom_factor)
+            frame = frame[center_y - radius_y:center_y + radius_y, center_x - radius_x:center_x + radius_x]
+            frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_LINEAR)
+
+        # YOLO Processing and stack update
+        coordinates, annotated_frame = process_image_with_yolo(frame)
+        if not stackx and not stacky:
+            for x, y in coordinates:
+                stackx.append(x)
+                stacky.append(y)
+
+        # Pop from stacks and send to ESP8266
+        if stackx and stacky:
+            x = stackx.pop()
+            y = stacky.pop()
+            message = f"{x},{y}\n"
+            esp.write(message.encode())
+            print(f"Sent coordinates: {message.strip()}")
+
+        # Update stack length display
+        self.progress_bar_counter.setValue(f"{len(stackx)}")
+
+        # Convert annotated frame for processed display
+        rgb_annotated = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+        height, width, channel = rgb_annotated.shape
+        bytes_per_line = channel * width
+        annotated_qimage = QImage(rgb_annotated.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        self.image_container.setPixmap(QPixmap.fromImage(annotated_qimage))
     
 
         
